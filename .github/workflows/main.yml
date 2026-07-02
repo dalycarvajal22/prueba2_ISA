@@ -1,0 +1,31 @@
+name: Deploy to EC2 with Docker
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t my-web-app .
+
+      - name: Save and copy image to EC2
+        run: |
+          docker save my-web-app | gzip > my-web-app.tar.gz
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+          scp -i private_key.pem -o StrictHostKeyChecking=no my-web-app.tar.gz ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/
+
+      - name: Deploy container on EC2
+        run: |
+          ssh -i private_key.pem -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
+            sudo docker load < /home/${{ secrets.EC2_USER }}/my-web-app.tar.gz
+            sudo docker stop my-web-app || true
+            sudo docker rm my-web-app || true
+            sudo docker run -d --name my-web-app -p 80:80 my-web-app
+          '
